@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.env
+*.log
+.DS_Store
+test/sessions/
+coverage/
+scraper.config.json

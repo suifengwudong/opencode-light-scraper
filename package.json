@@ -1,0 +1,14 @@
+{
+  "name": "opencode-light-scraper",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Lightweight web scraper plugin for opencode",
+  "type": "module",
+  "dependencies": {
+    "@opencode-ai/plugin": "^1.17.16",
+    "turndown": "^7.2.4"
+  },
+  "scripts": {
+    "test": "node test/server.js"
+  }
+}
