@@ -1,6 +1,53 @@
 import { execSync } from "node:child_process"
 import { existsSync } from "node:fs"
 
+export const DRIVER_BINARY = {
+  win32: {
+    edge: [
+      `${process.env.LOCALAPPDATA}\\Microsoft\\Edge\\Application\\msedgedriver.exe`,
+      `${process.env['PROGRAMFILES(X86)']}\\Microsoft\\Edge\\Application\\msedgedriver.exe`,
+    ],
+    chrome: [
+      `${process.env.LOCALAPPDATA}\\Google\\Chrome\\Application\\chromedriver.exe`,
+    ],
+  },
+  darwin: { edge: [], chrome: [] },
+}
+
+export const USER_DATA_DIRS = {
+  win32: {
+    edge: `${process.env.LOCALAPPDATA}\\Microsoft\\Edge\\User Data`,
+    chrome: `${process.env.LOCALAPPDATA}\\Google\\Chrome\\User Data`,
+  },
+  darwin: {
+    edge: `${process.env.HOME}/Library/Application Support/Microsoft Edge`,
+    chrome: `${process.env.HOME}/Library/Application Support/Google/Chrome`,
+  },
+}
+
+export const COOKIE_PATHS = {
+  win32: {
+    edge: {
+      cookies: `${process.env.LOCALAPPDATA}\\Microsoft\\Edge\\User Data\\Default\\Network\\Cookies`,
+      localState: `${process.env.LOCALAPPDATA}\\Microsoft\\Edge\\User Data\\Local State`,
+    },
+    chrome: {
+      cookies: `${process.env.LOCALAPPDATA}\\Google\\Chrome\\User Data\\Default\\Network\\Cookies`,
+      localState: `${process.env.LOCALAPPDATA}\\Google\\Chrome\\User Data\\Local State`,
+    },
+  },
+  darwin: {
+    edge: {
+      cookies: `${process.env.HOME}/Library/Application Support/Microsoft Edge/Default/Cookies`,
+      localState: `${process.env.HOME}/Library/Application Support/Microsoft Edge/Local State`,
+    },
+    chrome: {
+      cookies: `${process.env.HOME}/Library/Application Support/Google/Chrome/Default/Cookies`,
+      localState: `${process.env.HOME}/Library/Application Support/Google/Chrome/Local State`,
+    },
+  },
+}
+
 export const BROWSER_BINARY = {
   win32: {
     edge: [
@@ -26,6 +73,24 @@ const LINUX_BROWSER = [
 ]
 
 const WHICH_CMDS = ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "microsoft-edge"]
+
+export function findDriverPath(browserType) {
+  const os = process.platform
+  const paths = DRIVER_BINARY[os]?.[browserType]
+  if (!paths) return null
+  for (const p of paths) { if (p && existsSync(p)) return p }
+  return null
+}
+
+export function findUserDataDir(browserType) {
+  const os = process.platform
+  return USER_DATA_DIRS[os]?.[browserType] || null
+}
+
+export function findCookiePaths(browserType) {
+  const os = process.platform
+  return COOKIE_PATHS[os]?.[browserType] || null
+}
 
 export function findBrowserPath(browserType) {
   const os = process.platform

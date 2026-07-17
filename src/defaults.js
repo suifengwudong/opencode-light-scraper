@@ -20,7 +20,13 @@ function cfg(key, fallback) {
 export function resolveConfig(options = {}) {
   const browserType = options.browserType || cfg("browserType") || cfg("BROWSER_TYPE", "edge")
   const browserPath = options.browserPath || cfg("browserPath") || cfg("BROWSER_PATH") || null
+  const driverPath = options.driverPath || cfg("driverPath") || cfg("DRIVER_PATH") || null
   const userDataDir = options.userDataDir || cfg("userDataDir") || cfg("USER_DATA_DIR") || null
+  const cookieFile = options.cookieFile || cfg("cookieFile") || cfg("COOKIE_FILE") || null
+  const localStateFile = options.localStateFile || cfg("localStateFile") || cfg("LOCAL_STATE_FILE") || null
 
-  return { browserType, browserPath, userDataDir }
+  return {
+    browserType, browserPath, driverPath, userDataDir,
+    cookiePaths: cookieFile && localStateFile ? { cookies: cookieFile, localState: localStateFile } : null,
+  }
 }
