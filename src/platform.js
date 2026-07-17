@@ -1,22 +1,76 @@
 import { execSync } from "node:child_process"
 import { existsSync } from "node:fs"
+import { homedir } from "node:os"
+import { join } from "node:path"
+
+const home = homedir()
+const local = join(home, "AppData", "Local")
+const pf86 = process.env["PROGRAMFILES(X86)"] || "C:\\Program Files (x86)"
+const pf = process.env["PROGRAMFILES"] || "C:\\Program Files"
 
 export const BROWSER_BINARY = {
   win32: {
     edge: [
-      `${process.env.LOCALAPPDATA}\\Microsoft\\Edge\\Application\\msedge.exe`,
-      `${process.env['PROGRAMFILES(X86)']}\\Microsoft\\Edge\\Application\\msedge.exe`,
+      join(local, "Microsoft", "Edge", "Application", "msedge.exe"),
+      join(pf86, "Microsoft", "Edge", "Application", "msedge.exe"),
     ],
     chrome: [
-      `${process.env.LOCALAPPDATA}\\Google\\Chrome\\Application\\chrome.exe`,
-      `${process.env.PROGRAMFILES}\\Google\\Chrome\\Application\\chrome.exe`,
-      `${process.env['PROGRAMFILES(X86)']}\\Google\\Chrome\\Application\\chrome.exe`,
+      join(local, "Google", "Chrome", "Application", "chrome.exe"),
+      join(pf, "Google", "Chrome", "Application", "chrome.exe"),
+      join(pf86, "Google", "Chrome", "Application", "chrome.exe"),
     ],
   },
   darwin: {
     edge: ["/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"],
     chrome: ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"],
     chromium: ["/Applications/Chromium.app/Contents/MacOS/Chromium"],
+  },
+}
+
+export const DRIVER_BINARY = {
+  win32: {
+    edge: [
+      join(local, "Microsoft", "Edge", "Application", "msedgedriver.exe"),
+      join(pf86, "Microsoft", "Edge", "Application", "msedgedriver.exe"),
+    ],
+    chrome: [
+      join(local, "Google", "Chrome", "Application", "chromedriver.exe"),
+    ],
+  },
+  darwin: { edge: [], chrome: [] },
+}
+
+export const USER_DATA_DIRS = {
+  win32: {
+    edge: join(local, "Microsoft", "Edge", "User Data"),
+    chrome: join(local, "Google", "Chrome", "User Data"),
+  },
+  darwin: {
+    edge: join(home, "Library", "Application Support", "Microsoft Edge"),
+    chrome: join(home, "Library", "Application Support", "Google", "Chrome"),
+  },
+}
+
+export const COOKIE_PATHS = {
+  win32: {
+    edge: {
+      cookies: join(local, "Microsoft", "Edge", "User Data", "Default", "Network", "Cookies"),
+      localState: join(local, "Microsoft", "Edge", "User Data", "Local State"),
+    },
+    chrome: {
+      cookies: join(local, "Google", "Chrome", "User Data", "Default", "Network", "Cookies"),
+      localState: join(local, "Google", "Chrome", "User Data", "Local State"),
+    },
+  },
+  darwin: {
+    edge: {
+      cookies: join(home, "Library", "Application Support", "Microsoft Edge", "Default", "Cookies"),
+      localState: join(home, "Library", "Application Support", "Microsoft Edge", "Local State"),
+    },
+    chrome: {
+      cookies: join(home, "Library", "Application Support", "Google", "Chrome", "Default", "Cookies"),
+      localState: join(home, "Library", "Application Support", "Google", "Chrome", "Local State"),
+    },
   },
 }
 
@@ -29,14 +83,12 @@ const WHICH_CMDS = ["google-chrome", "google-chrome-stable", "chromium", "chromi
 
 export function findBrowserPath(browserType) {
   const os = process.platform
-
   const paths = BROWSER_BINARY[os]?.[browserType]
   if (paths) {
     for (const p of paths) {
       if (p && existsSync(p)) return p
     }
   }
-
   if (os !== "linux") return null
   for (const p of LINUX_BROWSER) { if (existsSync(p)) return p }
   for (const cmd of WHICH_CMDS) {
