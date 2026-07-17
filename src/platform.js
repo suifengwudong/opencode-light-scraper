@@ -99,21 +99,3 @@ export function findBrowserPath(browserType) {
   }
   return null
 }
-
-export function findDriverPath(browserType) {
-  const os = process.platform
-  const paths = DRIVER_BINARY[os]?.[browserType]
-  if (!paths) return null
-  for (const p of paths) { if (p && existsSync(p)) return p }
-  return null
-}
-
-export function findUserDataDir(browserType) {
-  const os = process.platform
-  return USER_DATA_DIRS[os]?.[browserType] || null
-}
-
-export function findCookiePaths(browserType) {
-  const os = process.platform
-  return COOKIE_PATHS[os]?.[browserType] || null
-}
