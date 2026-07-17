@@ -1,0 +1,6 @@
+{
+  "_说明": "复制此文件为 scraper.config.json 并填入你的配置（不会提交到 git）",
+  "browserType": "edge",
+  "browserPath": "",
+  "userDataDir": ""
+}
