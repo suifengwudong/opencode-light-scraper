@@ -22,5 +22,14 @@ export function resolveConfig(options = {}) {
   const browserPath = options.browserPath || cfg("browserPath") || cfg("BROWSER_PATH") || null
   const userDataDir = options.userDataDir || cfg("userDataDir") || cfg("USER_DATA_DIR") || null
 
-  return { browserType, browserPath, userDataDir }
+  const searxUrl = "searxUrl" in options ? options.searxUrl : cfg("searxUrl") || process.env.SEARX_URL || null
+  const searchLanguage = "searchLanguage" in options
+    ? options.searchLanguage
+    : cfg("searchLanguage") || process.env.SEARX_LANGUAGE || null
+  const allowPrivateSearch = options.allowPrivateSearch ?? cfg("allowPrivateSearch") ?? true
+  const autoStart = options.autoStart ?? cfg("autoStart") ?? true
+  const wslDistro = options.wslDistro || cfg("wslDistro") || "Ubuntu"
+  const searxContainer = options.searxContainer || cfg("searxContainer") || "searxng"
+
+  return { browserType, browserPath, userDataDir, searxUrl, searchLanguage, allowPrivateSearch, autoStart, wslDistro, searxContainer }
 }

@@ -1,4 +1,5 @@
 import { scrape } from "./scraper.js"
+import { assertPublicUrl, robotsAllowed, robotsCrawlDelayMs } from "./safety.js"
 
 function getHostname(url) {
   try {
@@ -35,10 +36,13 @@ export async function crawl(seedUrl, options = {}) {
   } = options
 
   const start = Date.now()
+  await assertPublicUrl(seedUrl)
+  const crawlDelayMs = await robotsCrawlDelayMs(seedUrl)
   const visited = new Set()
   const queue = [{ url: normalizeUrl(seedUrl), depth: 0 }]
   const results = []
   const errors = []
+  const blocked = []
   const seedHost = stayOnDomain ? getHostname(seedUrl) : null
 
   let active = 0
@@ -57,9 +61,14 @@ export async function crawl(seedUrl, options = {}) {
       if (item.depth > depth) continue
       if (visited.size > maxPages) break
 
+      if (!(await robotsAllowed(normalized))) {
+        blocked.push(normalized)
+        continue
+      }
+
       active++
       try {
-        await sleep(rateLimit)
+        await sleep(Math.max(rateLimit, crawlDelayMs))
         const result = await scrape(normalized, { format: "json", contentOnly, useEdgeCookies })
         if (result.error) {
           errors.push({ url: normalized, error: result.error })
@@ -100,6 +109,7 @@ export async function crawl(seedUrl, options = {}) {
     pages: results,
     total_pages: results.length,
     errors,
+    blocked,
     started_at: new Date(start).toISOString(),
     duration_ms: Date.now() - start,
   }

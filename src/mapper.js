@@ -1,5 +1,9 @@
+import { safeFetch, assertPublicUrl } from "./safety.js"
+
 export async function map(url, options = {}) {
   const { limit = 100, filter, timeout = 30000 } = options
+
+  await assertPublicUrl(url)
 
   const seen = new Set()
   const urls = []
@@ -13,15 +17,17 @@ export async function map(url, options = {}) {
   }
 
   const parsed = new URL(url)
+  let sitemapFound = false
 
   const sitemapUrl = `${parsed.origin}/sitemap.xml`
   try {
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), timeout)
-    const resp = await fetch(sitemapUrl, { signal: controller.signal })
+    const resp = await safeFetch(sitemapUrl, { signal: controller.signal })
     clearTimeout(timer)
     if (resp.ok) {
       const xml = await resp.text()
+      sitemapFound = /<loc>/i.test(xml)
       const locRe = /<loc>([^<]+)<\/loc>/gi
       let m
       while ((m = locRe.exec(xml)) !== null) {
@@ -35,7 +41,7 @@ export async function map(url, options = {}) {
     try {
       const controller = new AbortController()
       const timer = setTimeout(() => controller.abort(), timeout)
-      const resp = await fetch(url, { signal: controller.signal })
+      const resp = await safeFetch(url, { signal: controller.signal })
       clearTimeout(timer)
       if (resp.ok) {
         const html = await resp.text()
@@ -55,5 +61,5 @@ export async function map(url, options = {}) {
     }
   }
 
-  return { urls, total: urls.length, sitemap_found: seen.size > 0 }
+  return { urls, total: urls.length, sitemap_found: sitemapFound }
 }

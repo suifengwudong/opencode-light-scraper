@@ -1,5 +1,6 @@
 import TurndownService from "turndown"
 import { findBrowser, renderWithBrowser } from "./browser.js"
+import { safeFetch, assertPublicUrl } from "./safety.js"
 import {
   extractMainContent, stripNoise, needsJsRendering,
   extractMetadata, extractLinks, extractImages,
@@ -21,25 +22,57 @@ turndown.addRule("codeBlockLang", {
 const DEFAULT_TIMEOUT = 30000
 const MAX_BODY = 5 * 1024 * 1024
 
+const CHARSET_ALIASES = {
+  "gb2312": "gbk",
+  "gb_2312-80": "gbk",
+  "gb-2312": "gbk",
+  "iso-8859-1": "windows-1252",
+  "latin1": "windows-1252",
+  "ascii": "utf-8",
+}
+
+function normalizeCharset(label) {
+  const l = String(label || "").trim().toLowerCase()
+  return CHARSET_ALIASES[l] || l
+}
+
+function detectCharset(contentType, buf) {
+  const header = /charset\s*=\s*["']?\s*([a-z0-9_-]+)/i.exec(contentType || "")
+  if (header) return header[1]
+  const head = new TextDecoder("utf-8", { fatal: false }).decode(buf.slice(0, 4096))
+  const meta = /<meta[^>]+charset\s*=\s*["']?\s*([a-z0-9_-]+)/i.exec(head)
+  return meta ? meta[1] : "utf-8"
+}
+
+export function decodeBody(buf, contentType) {
+  const slice = buf.slice(0, MAX_BODY)
+  for (const label of [detectCharset(contentType, buf), "utf-8"]) {
+    try {
+      return new TextDecoder(normalizeCharset(label), { fatal: false }).decode(slice)
+    } catch {}
+  }
+  return slice.toString("utf8")
+}
+
 async function httpFetch(url, timeout, userAgent) {
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), timeout)
   try {
-    const resp = await fetch(url, {
+    const resp = await safeFetch(url, {
       signal: ctrl.signal,
       headers: {
         ...(userAgent ? { "User-Agent": userAgent } : {}),
         Accept: "text/html,application/xhtml+xml",
       },
-      redirect: "follow",
     })
-    clearTimeout(timer)
     const buf = await resp.arrayBuffer()
+    clearTimeout(timer)
+    const contentType = resp.headers.get("content-type") || ""
     return {
       statusCode: resp.status,
       finalUrl: resp.url,
-      contentType: resp.headers.get("content-type") || "",
-      html: new TextDecoder("utf-8", { fatal: false }).decode(buf.slice(0, MAX_BODY)),
+      contentType,
+      html: decodeBody(Buffer.from(buf), contentType),
     }
   } catch (err) {
     clearTimeout(timer)
@@ -62,7 +95,7 @@ async function tryBrowserRendering(finalUrl, timeout, mode, options) {
   }
 }
 
-function buildResult(url, statusCode, contentType, html, metadata, links, images,
+function buildResult(url, statusCode, contentType, html, mainContent, metadata, links, images,
                      contentExtracted, browserUsed, start, isPdf) {
   const base = {
     url, status_code: statusCode, error: null, duration_ms: Date.now() - start,
@@ -71,7 +104,7 @@ function buildResult(url, statusCode, contentType, html, metadata, links, images
     return { ...base, content_type: contentType, body_size: html.length, is_pdf: true }
   }
 
-  const cleaned = stripNoise(contentExtracted ? extractMainContent(html) : html)
+  const cleaned = stripNoise(contentExtracted && mainContent ? mainContent : html)
   const markdownBody = turndown.turndown(cleaned)
   const frontmatter = metadata ? buildFrontmatter(metadata) : ""
   const markdown = frontmatter + markdownBody
@@ -99,6 +132,13 @@ export async function scrape(url, options = {}) {
   } = options
 
   const start = Date.now()
+
+  try {
+    await assertPublicUrl(url)
+  } catch (err) {
+    return { url, status_code: 0, error: err.message, duration_ms: Date.now() - start }
+  }
+
   let html = ""
   let finalUrl = url
   let statusCode = 0
@@ -133,12 +173,16 @@ export async function scrape(url, options = {}) {
   const links = isPdf ? [] : extractLinks(html, finalUrl)
   const images = isPdf ? [] : extractImages(html, finalUrl)
 
+  let mainContent = null
   if (contentOnly && !isPdf) {
     const main = extractMainContent(html)
-    if (main && main.length > 100) contentExtracted = true
+    if (main && main.length > 100) {
+      contentExtracted = true
+      mainContent = main
+    }
   }
 
-  const result = buildResult(finalUrl, statusCode, contentType, html,
+  const result = buildResult(finalUrl, statusCode, contentType, html, mainContent,
     metadata, links, images, contentExtracted, browserUsed, start, isPdf)
 
   if (format === "json") return result
