@@ -552,7 +552,7 @@ wsl -d Ubuntu -e bash -lc "setsid nohup sleep 1000000 >/dev/null 2>&1 </dev/null
 ```
 
 - `setsid nohup sleep …` 保活 WSL VM（否则空闲会被关掉），`docker start` 拉起容器；
-- 等待 2.5s 后重试一次；
+- 之后**轮询直到就绪**（每 1.5s 一次，最多 30s），覆盖 WSL 冷启动较慢的情况；
 - 仍失败则抛出可直接照做的错误信息（含上面的命令）；
 - `autoStart: false` 可关闭自愈。
 

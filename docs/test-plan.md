@@ -104,7 +104,7 @@
 | 8 | 未配置实例 | `searxUrl: ""` | 报“未配置” |
 | 9 | 本地实例放行 | `allowPrivateSearch` 默认 true | localhost 实例可用 |
 | 10 | 真实实例冒烟 | `search("opencode ai")` | 返回真实结果（需联网/代理） |
-| 11 | 自愈 | 先 `docker stop searxng` 再调用 | 自动拉起实例并返回结果 |
+| 11 | 自愈（轮询） | 先 `docker stop searxng` 再调用 | 自动拉起并轮询到就绪后返回结果 |
 | 12 | 自愈关闭/失败 | `autoStart:false` 且实例停 | 报错含 `docker start searxng` 命令 |
 
 ### browser 发现测试

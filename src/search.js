@@ -5,7 +5,8 @@ import { resolveConfig } from "./defaults.js"
 
 const execFileAsync = promisify(execFile)
 const DEFAULT_LIMIT = 8
-const RETRY_DELAY_MS = 2500
+const START_TIMEOUT_MS = 30000
+const POLL_INTERVAL_MS = 1500
 
 function toLimit(value, fallback) {
   const n = Number(value)
@@ -56,6 +57,22 @@ function delay(ms) {
   return new Promise((r) => setTimeout(r, ms))
 }
 
+/** Retry `attempt` until it resolves or the deadline passes (cold WSL boot can take a while). */
+export async function pollUntil(attempt, options = {}) {
+  const { timeoutMs = START_TIMEOUT_MS, intervalMs = POLL_INTERVAL_MS } = options
+  const deadline = Date.now() + timeoutMs
+  let last
+  for (;;) {
+    try {
+      return await attempt()
+    } catch (err) {
+      last = err
+    }
+    if (Date.now() >= deadline) throw last
+    await delay(intervalMs)
+  }
+}
+
 export async function search(query, options = {}) {
   const cfg = resolveConfig(options)
   const base = String(cfg.searxUrl || "").replace(/\/+$/, "")
@@ -78,13 +95,13 @@ export async function search(query, options = {}) {
   try {
     resp = await fetchOnce()
   } catch (err) {
-    // Connection failed: the WSL VM or the container is probably down. Try to start it once.
-    if (cfg.autoStart !== true || !(await tryStartInstance(cfg))) throw reachError(base, cfg, err)
-    await delay(RETRY_DELAY_MS)
+    // Connection failed: the WSL VM or the container is probably down.
+    if (cfg.autoStart !== true || process.platform !== "win32") throw reachError(base, cfg, err)
+    await tryStartInstance(cfg) // best effort; pollUntil decides whether it came up
     try {
-      resp = await fetchOnce()
-    } catch (err2) {
-      throw reachError(base, cfg, err2)
+      resp = await pollUntil(fetchOnce)
+    } catch (last) {
+      throw reachError(base, cfg, last)
     }
   }
 
