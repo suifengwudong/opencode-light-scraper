@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import http from "node:http"
-import { search, mapResult, startCommand } from "../src/search.js"
+import { search, mapResult, startCommand, pollUntil } from "../src/search.js"
 
 let passed = 0
 async function ok(name, fn) {
@@ -104,6 +104,22 @@ await ok("startCommand includes distro and container", () => {
   assert.ok(cmd.includes("wsl -d Ubuntu"))
   assert.ok(cmd.includes("docker start searxng"))
 })
+await ok("pollUntil retries until success", async () => {
+  let n = 0
+  const r = await pollUntil(
+    async () => {
+      n++
+      if (n < 3) throw new Error("not ready")
+      return "ok"
+    },
+    { timeoutMs: 1000, intervalMs: 10 },
+  )
+  assert.equal(r, "ok")
+  assert.equal(n, 3)
+})
+await ok("pollUntil gives up at the deadline", () =>
+  rejects(() => pollUntil(async () => { throw new Error("always down") }, { timeoutMs: 60, intervalMs: 10 }), "always down"))
+
 await ok("unreachable instance -> actionable error", async () => {
   try {
     await search("x", { searxUrl: "http://127.0.0.1:9", autoStart: false, allowPrivateSearch: true })
