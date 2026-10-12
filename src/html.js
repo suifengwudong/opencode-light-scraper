@@ -1,7 +1,8 @@
 export function extractElement(html, tag, idPattern) {
-  const re = new RegExp(
-    `<${tag}[^>]*\\bid\\s*=\\s*["']${idPattern}[^"']*["'][^>]*>`, "i"
-  )
+  const open = idPattern === undefined
+    ? `<${tag}\\b[^>]*>`
+    : `<${tag}\\b[^>]*\\bid\\s*=\\s*["']${idPattern}[^"']*["'][^>]*>`
+  const re = new RegExp(open, "i")
   const startMatch = re.exec(html)
   if (!startMatch) return null
 
@@ -17,15 +18,16 @@ export function extractElement(html, tag, idPattern) {
   return null
 }
 
+// Semantic containers first, then well-known content ids, then generic ones.
 const CONTENT_SELECTORS = [
+  (h) => extractElement(h, "main"),
+  (h) => extractElement(h, "article"),
   (h) => extractElement(h, "div", "mw-content-text"),
   (h) => extractElement(h, "div", "bodyContent"),
   (h) => extractElement(h, "div", "readme"),
   (h) => extractElement(h, "div", "markdown-body"),
-  (h) => extractElement(h, "div", "content"),
   (h) => extractElement(h, "div", "main-content"),
-  (h) => extractElement(h, "article"),
-  (h) => extractElement(h, "main"),
+  (h) => extractElement(h, "div", "content"),
 ]
 
 export function extractMainContent(html) {
@@ -84,8 +86,8 @@ export function extractMetadata(html) {
     return m ? m[1] : null
   }
 
-  const titles = [...html.matchAll(/<title>([^<]*)<\/title>/gi)]
-  const titleText = titles.length > 0 ? titles[titles.length - 1][1] : null
+  const titles = [...html.matchAll(/<title[^>]*>([\s\S]*?)<\/title>/gi)]
+  const titleText = titles.length > 0 ? titles[0][1].trim() : null
 
   const headings = []
   for (const level of [1, 2, 3, 4, 5, 6]) {

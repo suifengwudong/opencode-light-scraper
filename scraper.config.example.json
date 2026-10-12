@@ -2,5 +2,11 @@
   "_说明": "复制此文件为 scraper.config.json 并填入你的配置（不会提交到 git）",
   "browserType": "edge",
   "browserPath": "",
-  "userDataDir": ""
+  "userDataDir": "",
+  "searxUrl": "http://127.0.0.1:8080",
+  "searchLanguage": "",
+  "allowPrivateSearch": true,
+  "autoStart": true,
+  "wslDistro": "Ubuntu",
+  "searxContainer": "searxng"
 }

@@ -1,4 +1,4 @@
-# opencode-light-scraper 开发文档
+# opencode-light-web-tools 开发文档
 
 ## 1. 项目概述
 
@@ -29,7 +29,9 @@ opencode 轻量级网页抓取插件。对标 crawlberg 核心功能，去掉重
 | download | ✅ | ❌ |
 | citations | ✅ | ✅ |
 | serve / mcp | ✅ | ❌ |
-| robots.txt 合规 | ✅ | ❌ |
+| robots.txt 合规 | ✅ | ✅ |
+| SSRF 防护 | ❌ | ✅ |
+| web 检索（SearxNG） | ❌ | ✅ |
 
 ---
 
@@ -159,10 +161,13 @@ opencode 轻量级网页抓取插件。对标 crawlberg 核心功能，去掉重
   ],
   "total_pages": 1,
   "errors": [],
+  "blocked": [],
   "started_at": "...",
   "duration_ms": 123
 }
 ```
+
+> `blocked` 为被 `robots.txt` 拒绝、因而跳过的 URL 列表。
 
 ### 3.3 `map(url, options?)`
 
@@ -211,28 +216,61 @@ opencode 轻量级网页抓取插件。对标 crawlberg 核心功能，去掉重
 }
 ```
 
+### 3.5 `search(query, options?)`
+
+通过自托管 SearxNG 实例检索（需先按第 12 节部署并配置 `searxUrl`）。
+
+**参数：**
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| query | string | 必填 | 检索词 |
+| options.limit | number | 8 | 最多返回条数（上限 50） |
+| options.language | string | 配置值 | 语言，如 `zh-CN`；不传则由配置/引擎决定 |
+| options.timeRange | "day"\|"month"\|"year" | - | 限定时间范围 |
+| options.categories | string | general | SearxNG 分类，逗号分隔 |
+
+**返回（拼成 markdown 交给模型，契约与 opencode websearch 一致）：**
+
+```
+## [标题](url)
+Published: <ISO 时间>
+
+摘要…
+```
+
+无结果时返回固定文案，并附 `Unresponsive engines: …` 便于诊断。
+
 ---
 
 ## 4. 项目结构
 
 ```
-opencode-light-scraper/
-├── package.json          # 依赖: turndown, @opencode-ai/plugin
+opencode-light-web-tools/
+├── package.json          # 依赖: turndown, @opencode/plugin
+├── index.js              # 根入口（V2 只发现包根目录的 index.*，re-export src/index.js）
 ├── src/
-│   ├── index.js          # 插件入口，导出工具定义
-│   ├── scraper.js        # scrape 核心逻辑
-│   ├── crawler.js        # crawl 递归爬取
+│   ├── index.js          # 插件入口，Plugin.define + 工具定义
+│   ├── scraper.js        # scrape 核心逻辑 + 字符集解码
+│   ├── crawler.js        # crawl 递归爬取（含 robots 检查）
 │   ├── mapper.js         # map URL 发现
 │   ├── citations.js      # 引用编号工具
-│   └── browser.js        # Edge/Chrome 发现 + headless 调用
+│   ├── downloader.js     # 文件下载
+│   ├── html.js           # HTML 提取（正文/元数据/链接/图片）
+│   ├── safety.js         # SSRF 防护 + robots.txt 解析/判定
+│   ├── search.js         # SearxNG 检索
+│   ├── browser.js        # Edge/Chrome 发现 + headless 调用
+│   ├── platform.js       # 浏览器路径探测
+│   └── defaults.js       # 配置读取（scraper.config.json / env）
 ├── test/
-│   ├── scraper.test.js   # scrape 测试
-│   ├── crawler.test.js   # crawl 测试
-│   ├── mapper.test.js    # map 测试
-│   ├── citations.test.js # citations 测试
-│   └── browser.test.js   # 浏览器发现测试
+│   ├── p0.test.mjs       # 选择器/字符集/sitemap 离线单测
+│   ├── safety.test.mjs   # SSRF IP 分类 + robots 解析离线单测
+│   ├── search.test.mjs   # search 映射/错误处理离线单测（假 SearxNG）
+│   ├── server.js         # 测试用本地服务器
+│   └── debug_*.mjs       # 调试脚本
 ├── docs/
-│   └── dev-guide.md      # 本文件
+│   ├── dev-guide.md      # 本文件
+│   └── test-plan.md      # 测试计划
 └── README.md
 ```
 
@@ -309,13 +347,17 @@ curl http://localhost:3000/spa
 | URL 格式错误 | 返回清晰错误信息 |
 | DNS 解析失败 | 超时后报 DNS 错误 |
 | 非 HTML 响应(PDF/图片) | 检测 content-type，返回 is_pdf 标记 |
-| 重定向(301/302) | 记录 final_url |
+| 重定向(301/302) | 记录 final_url，逐跳做 SSRF 检查 |
 | gzip 编码 | fetch() 自动解压 |
-| 中文/UTF-8 编码 | 正确解码 |
+| 中文/GBK/Big5 编码 | 按 `content-type` charset 解码（含 `<meta charset>` 兜底） |
 | 空响应体 | 返回 "empty response" 错误 |
-| 无限重定向循环 | 设置最大重定向次数 |
+| 无限重定向循环 | 手动跟随，最多 5 跳后报错 |
 | 并发请求过多 | 受 concurrent 参数 + rateLimit 控制 |
 | 大文件/大页面 | 受 timeout 限制，可设 maxBodySize |
+| 内网/回环/云元数据地址 | 拦截并报错；`OC_ALLOW_PRIVATE=1` 可放行 |
+| `<article>`/`<main>` 无 id | 标签级选择器，正文提取生效 |
+| 被 robots.txt 禁止的 URL | crawl 跳过并记入 `blocked` |
+| robots 的 Crawl-delay | 并入每请求限速 |
 
 ---
 
@@ -324,10 +366,8 @@ curl http://localhost:3000/spa
 ```json
 {
   "dependencies": {
-    "turndown": "^7.2.0"
-  },
-  "devDependencies": {
-    "@opencode-ai/plugin": "latest"
+    "turndown": "^7.2.0",
+    "@opencode/plugin": "^2.0.27"
   }
 }
 ```
@@ -352,15 +392,17 @@ curl http://localhost:3000/spa
 
 ```json
 {
-  "plugin": ["F:\\myweb\\Projects\\opencode-light-scraper\\src\\index.js"]
+  "plugins": ["<absolute-path-to>/opencode-light-web-tools"]
 }
 ```
+
+> V2 只发现**包根目录**的 `index.js`/`index.mjs`/`index.ts`，因此目录里必须有根 `index.js`（本仓库已加，re-export `src/index.js`）。
 
 发布到 npm（未来）：
 
 ```json
 {
-  "plugin": ["@my-org/opencode-light-scraper"]
+  "plugin": ["@my-org/opencode-light-web-tools"]
 }
 ```
 
@@ -391,3 +433,127 @@ curl http://localhost:3000/spa
 | 代码块语言 | ✅ | turndown 自定义规则：`<code class="language-js">` → ` ```js` |
 | 去除导航噪音 | ✅ | stripNoise 移除 nav/footer/header/aside/script/style |
 | user-agent 可配 | ✅ | scrape 工具暴露 args.userAgent |
+
+---
+
+## 11. 安全与合规（SSRF / robots.txt）
+
+实现集中在 `src/safety.js`，被 `scraper.js` / `crawler.js` / `mapper.js` / `downloader.js` 调用。
+
+### 11.1 SSRF 防护
+
+- `assertPublicUrl(url)`：仅允许 `http`/`https`；解析主机名并逐个 IP 判定，命中即抛错。
+  - 拦截 IPv4：`0/8, 10/8, 100.64/10, 127/8, 169.254/16, 172.16/12, 192.0.0/24, 192.0.2/24, 192.168/16, 198.18/15, 198.51.100/24, 203.0.113/24, 224/4, 240/4`
+  - 拦截 IPv6：`::`, `::1`, `fc00::/7`, `fe80::/10`, `ff00::/8`, `2001:db8::/32`, IPv4-mapped
+  - 拦截主机名：`localhost` 及 `.localhost` / `.local` / `.internal` / `.home.arpa` 后缀
+  - DNS 结果缓存 5 分钟，避免 crawl 时重复解析
+- `safeFetch(url, opts)`：`redirect:"manual"` 手动跟随，**每一跳都过 `assertPublicUrl`**，最多 5 跳，防止“公网跳内网”的重定向 SSRF。
+- 应用点：`scrape` 入口（覆盖 `mode:"js"` 分支）、`download`、`map`、`crawl`（种子 + 每个发现链接）。
+
+### 11.2 robots.txt
+
+- `robotsAllowed(url)`：按 origin 拉取 `/robots.txt`（缓存 1 小时），选最匹配的 `User-agent` 组（无则 `*`）；支持 `Allow`/`Disallow`、`*` 与 `$` 通配，最长匹配优先、同长 Allow 优先；无 robots 或拉取失败一律放行。
+- `robotsCrawlDelayMs(url)`：读取 `Crawl-delay`，与 `rateLimit` 取较大值作为每请求间隔（上限 30s）。
+- 应用点：仅 `crawl`。`scrape` 是单次显式抓取（同内置 `webfetch`），只做 SSRF 不做 robots。
+- 被拒 URL 记入 crawl 结果的 `blocked` 数组。
+
+### 11.3 逃生开关
+
+- 环境变量 `OC_ALLOW_PRIVATE=1`：放行内网/回环（自建文档、局域网场景）。默认关闭。
+
+### 11.4 顺带修复（P0）
+
+| 项 | 说明 |
+|----|------|
+| `<article>`/`<main>` 选择器 | 原逻辑拼出 `id="undefined"` 的空选择器；改为标签级匹配 |
+| `<title>` 取值 | 由最后一个改为第一个 |
+| `map.sitemap_found` | 由“找到任意 URL”改为“确实命中 sitemap.xml” |
+| `browser.js` | `execSync` 字符串拼接 → `execFileSync` 参数数组（无 shell，杜绝注入） |
+| 字符集 | 固定 UTF-8 → 按声明 charset 解码 |
+| 正文提取 | `extractMainContent` 只算一次 |
+
+---
+
+## 12. search（SearxNG 集成）
+
+### 12.1 定位
+
+插件原本只能抓“已知 URL”，SearxNG 补上“发现 URL”的能力。它是自托管元搜索引擎，聚合 Google/Bing/DuckDuckGo 等，对外提供 HTTP API，不绑定任何一家 API key。
+
+### 12.2 部署（本仓库当前使用方式）
+
+本机没有 Windows 版 Docker，改用 **WSL 内的 Docker** 跑官方镜像；容器用 `--network host` 以复用 WSL 的代理设置：
+
+```bash
+# 在 WSL 内执行
+mkdir -p ~/searxng-config
+cat > ~/searxng-config/settings.yml <<'YAML'
+use_default_settings: true
+search:
+  safe_search: 0
+  formats: [html, json]        # 必须开 json，否则 format=json 返回 403
+server:
+  secret_key: <随机串>
+  limiter: false               # 关闭反爬，允许非浏览器请求
+outgoing:
+  proxies:
+    all://:
+      - http://127.0.0.1:<proxy-port>  # WSL 侧可见的 HTTP 代理（按需替换）
+YAML
+
+docker run -d --name searxng --restart unless-stopped --network host \
+  -v /home/<user>/searxng-config:/etc/searxng \
+  searxng/searxng
+```
+
+WSL2 的 localhost 转发让 Windows 侧可直接访问 `http://127.0.0.1:8080`。没有代理时删掉 `outgoing.proxies` 整段即可。
+
+### 12.3 配置
+
+`~/.config/opencode/scraper.config.json`（或 `SEARX_URL` / `SEARX_LANGUAGE` 环境变量）：
+
+```json
+{
+  "searxUrl": "http://127.0.0.1:8080",
+  "searchLanguage": "",
+  "allowPrivateSearch": true,
+  "autoStart": true,
+  "wslDistro": "Ubuntu",
+  "searxContainer": "searxng"
+}
+```
+
+| 键 | 说明 |
+|----|------|
+| `searxUrl` | 实例地址；为空时 search 工具报“未配置” |
+| `searchLanguage` | 默认语言（留空交给 Agent/引擎决定） |
+| `allowPrivateSearch` | 是否允许 search 访问内网地址（默认 true，因为是本地实例） |
+| `autoStart` | 连不上时自动执行启动命令拉起实例（默认 true，仅 Windows） |
+| `wslDistro` | WSL 发行版名（默认 `Ubuntu`） |
+| `searxContainer` | 容器名（默认 `searxng`） |
+
+### 12.4 协议与错误处理
+
+- 请求：`GET {searxUrl}/search?q=…&format=json[&language=…][&time_range=…][&categories=…]`
+- 响应：`results[].{url,title,content,engine,publishedDate}`，另有 `unresponsive_engines`。
+- 映射到 opencode `WebSearch.Result`：`{ url, title, content?, time.published? }`。
+- 错误：403 → 提示开 json；429 → 限流；非 JSON → 提示检查 format；引擎全超时 → 空结果 + `Unresponsive engines`。
+
+### 12.5 SSRF 边界
+
+search 请求走 `safeFetch(..., { allowPrivate: true })`，**只对 `searxUrl` 这一个地址**放行内网；`scrape/crawl/map/download` 仍严格拦截 `127.0.0.1` 等（见第 11 节）。`allowPrivateSearch: false` 可关闭该放行。
+
+### 12.6 自愈（使用前无需手动启动）
+
+`search` 调用时若连不上 `searxUrl`，会自动执行一次启动命令（默认仅 Windows）：
+
+```
+wsl -d Ubuntu -e bash -lc "setsid nohup sleep 1000000 >/dev/null 2>&1 </dev/null & docker start searxng"
+```
+
+- `setsid nohup sleep …` 保活 WSL VM（否则空闲会被关掉），`docker start` 拉起容器；
+- 等待 2.5s 后重试一次；
+- 仍失败则抛出可直接照做的错误信息（含上面的命令）；
+- `autoStart: false` 可关闭自愈。
+
+因此 **LLM 不需要在使用前手动启动 Ubuntu**，直接调用 `search` 即可。`search` 工具描述里也写明了这一点。
